@@ -1,0 +1,4 @@
+START
+MOV T0, "Timer"
+OUT T0
+IRET

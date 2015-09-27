@@ -1,0 +1,4 @@
+START
+MOV T0, "In INT 1"
+OUT T0
+IRET

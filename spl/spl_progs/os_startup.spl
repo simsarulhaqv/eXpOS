@@ -26,9 +26,17 @@ SP=3*512;
 
 [28*512]=0;
 
+// load interrupt 1 routine
+load(11, 5);
+load(12,6);
+
 // load interrupt 7 routine
 load(23,17);
 load(24,18);
+
+// load timer interrupt routine
+load(9,3);
+load(10,4);
 
 // load exception handler
 load(7,1);
