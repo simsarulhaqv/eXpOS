@@ -1,0 +1,67 @@
+// Save the context of the current process
+alias currentPID S0;
+currentPID = (PTBR - 1024) / 8;
+alias currentPCB S1;
+currentPCB = READY_LIST + 32 * currentPID;
+[ currentPCB + 1 ] = 1; 		
+[ currentPCB + 2 ] = BP;		
+[ currentPCB + 3 ] = SP - 1;
+ 	
+alias physicalSP S2;
+physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+[ currentPCB + 4 ] = [ physicalSP ]; 
+[ currentPCB + 5 ] = PTBR;		
+[ currentPCB + 6 ] = PTLR;		
+[ currentPCB + 7 ] = R0;		
+[ currentPCB + 8 ] = R1;		
+[ currentPCB + 9 ] = R2;
+[ currentPCB + 10 ] = R3;		
+[ currentPCB + 11 ] = R4;		
+[ currentPCB + 12 ] = R5;		
+[ currentPCB + 13 ] = R6;		
+[ currentPCB + 14 ] = R7;		
+	
+	
+	
+// Search for a new process using round robin algorithm
+alias newPID S4;
+newPID = currentPID;
+while (1) do	
+	newPID = (newPID+1)%32;
+	if ([READY_LIST + 32 * newPID +1]==1) then
+		break;
+	endif;
+endwhile;
+
+if (currentPID==newPID) then
+	ireturn;
+endif;
+
+// Resume the New Process Found	
+	alias newPCB S3;
+	newPCB = READY_LIST + 32 * newPID;
+	[ newPCB + 1 ] = 2; 	// Set STATE to READY
+	BP = [ newPCB + 2 ];	//
+	SP = [ newPCB + 3 ]; 	//
+	PTBR = [ newPCB + 5 ];	//
+	PTLR = [ newPCB + 6 ];	//
+	R0 = [ newPCB + 7 ];	//
+	R1 = [ newPCB + 8 ];	// Copy Back the values
+	R2 = [ newPCB + 9 ];	//
+	R3 = [ newPCB + 10 ]; 	//
+	R4 = [ newPCB + 11 ]; 	//
+	R5 = [ newPCB + 12 ]; 	//
+	R6 = [ newPCB + 13 ]; 	//
+	R7 = [ newPCB + 14 ];	//
+	SP = SP + 1; 			// Make space for storing the IP on top as after interrupt it is loaded from there
+	alias newphysicalSP S2; 
+	newphysicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512); 
+	[ newphysicalSP ] = [ newPCB + 4 ]; 
+	//print newPID;
+	//print "IP";
+	//print [ newphysicalSP ];
+	// Stores IP field value of PCB on the stack
+	
+	breakpoint;
+//print "UserTurn"; 
+ireturn;
