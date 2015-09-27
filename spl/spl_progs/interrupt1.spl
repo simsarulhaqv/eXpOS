@@ -1,0 +1,72 @@
+alias physicalSP S0;
+alias sysCallNo S1;
+alias fileName S2;
+alias FATIndex S3;
+alias dfcounter S4;
+alias freeMemory S5;
+alias blocklistCounter S6;
+
+physicalSP = ([PTBR + 2*(SP/512)] * 512) + (SP % 5);
+
+// system call number
+sysCallNo = [physicalSP - 1];
+
+if ( sysCallNo == 1 ) then
+	fileName = [physicalSP - 3];
+	FATIndex = 0;
+	while (FATIndex < 64) do
+		if ([FAT + FATIndex * 8] == fileName) then
+			[physicalSP - 2] = 0;
+			ireturn;
+		endif;
+		FATIndex = FATIndex + 1;	
+	endwhile;
+
+	dfcounter= 24;
+	while(dfcounter < 448) do
+		if ( [DISK_LIST + dfcounter] == 0 ) then
+			freeMemory = dfcounter;
+			break;
+		endif;
+		dfcounter = dfcounter + 1;
+		if (dfcounter == 448) then
+			[ physicalSP - 2 ] = -1;
+			ireturn;
+		endif;	
+	endwhile; 
+
+	FATIndex = 0;
+	while (FATIndex < 64) do	
+		if ([FAT + FATIndex * 8 + 2] == -1) then
+			break;		
+		endif;		
+		FATIndex = FATIndex + 1;
+		if (FATIndex == 64) then
+			[physicalSP - 2] = -1;
+			ireturn;	
+		endif;	
+	endwhile;
+	
+
+
+	[FAT + FATIndex * 8] = fileName;
+	[FAT + FATIndex * 8 + 1] = 0;	
+	[FAT + FATIndex * 8 + 2] = freeMemory;
+
+	load(1,freeMemory);
+	blocklistCounter = 0;
+	while(blocklistCounter < 256) do
+		[SCRATCHPAD + blocklistCounter] = -1;
+		blocklistCounter = blocklistCounter + 1;
+	endwhile;
+	store(1,freeMemory);
+	[DISK_LIST + freeMemory] = 1;
+	store(5,19);
+	store(6,20);
+	
+	[ physicalSP - 2 ] = 0;
+	ireturn;
+
+endif;
+
+
