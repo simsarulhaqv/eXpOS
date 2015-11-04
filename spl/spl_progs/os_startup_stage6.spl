@@ -1,0 +1,75 @@
+alias newPTBR S0;
+
+// load interrupt routines 1
+load(11, 5);
+load(12, 6);
+
+// load timer interrupt routine
+load(9, 3);
+load(10, 4);
+
+// load exception handler
+load(7, 1);
+load(8, 2);
+
+// load interrupt 7
+load(23, 17);
+load(24, 18);
+
+// pid of init process
+[READY_LIST + 0*32] = 0;
+
+// load init process
+load(25,21);
+load(26,22);
+load(27,23);
+
+// ready list of pcb is set for init process
+PTBR=1024+(0*8);
+PTLR=4;
+
+[PTBR+0]=25;
+[PTBR+1]="01";
+[PTBR+2]=26;
+[PTBR+3]="01";
+[PTBR+4]=27;
+[PTBR+5]="01";
+[PTBR+6]=28; //stack
+[PTBR+7]="01";
+
+[READY_LIST + 1] = 2;
+
+SP=3*512;
+
+[28*512]=0;
+
+
+// PID of second process is 1
+[READY_LIST + 32] = 1;
+
+// load a block for executsble process
+load(29, 25);
+
+// find newPTBR
+newPTBR = 1024 + 1 * 8;
+
+// set page table for the executable process
+[newPTBR + 0] = 29; 
+[newPTBR + 1] = "01"; 
+[newPTBR + 2] = -1; 
+[newPTBR + 3] = "00"; 
+[newPTBR + 4] = -1; 
+[newPTBR + 5] = "00"; 
+[newPTBR + 6] = 30; 
+[newPTBR + 7] = "01"; 
+
+[READY_LIST + 33] = 1;
+[READY_LIST + 34] = 3 * 512;
+[READY_LIST + 35] = 3 * 512;
+[READY_LIST + 36] = 0;
+
+[READY_LIST + 37] = newPTBR;
+[READY_LIST + 38] = 4;
+
+
+ireturn;

@@ -1,0 +1,194 @@
+alias physicalSP S0;
+alias sysCallNo S1;
+alias counter S2;
+alias newPID S3;
+alias currentPID S4;
+alias currentPCB S5;
+alias newPCB S6;
+alias newphysicalSP S7;
+alias WaitingPID S8;
+alias pidCounter S9;
+alias WaitingPCB S10;
+
+
+physicalSP = ([PTBR + 2*(SP/512)]*512) + (SP%512);
+sysCallNo = [physicalSP-1];
+
+currentPID = (PTBR-1024)/8;
+currentPCB = READY_LIST + currentPID*32;
+
+if (sysCallNo == 14 || sysCallNo == 10) then
+	// Find a waiting PCB and update it to ready
+	newPID = currentPID;
+	counter = 0;
+	while(counter < 32) do
+		newPID = (newPID + 1) % 32;
+		newPCB = READY_LIST + newPID*32;
+		if([newPCB+1] == 100 + currentPID) then
+			[newPCB+1] = 1;
+		endif;
+		counter = counter + 1;
+	endwhile;
+
+	// print("hello");
+	
+	if (sysCallNo == 14) then
+		// successfully completed
+		[physicalSP - 2] = 0;
+		ireturn;
+	endif;	
+endif;
+
+if (sysCallNo == 10) then
+
+	counter=0;
+	while (counter < 32) do
+		if([READY_LIST + 32*counter + 1] == 1) then
+			break;
+		endif;
+		counter = counter + 1;
+	endwhile;
+	
+	if( counter == 32) then
+		halt; // since this process was the only process that was ready
+	endif;
+
+	// close all files opened by the current process
+	counter = 0;
+	while (counter < 8) do
+		if ([currentPCB + 15 + counter * 2] != -1) then				
+			[FILE_TABLE + [currentPCB + 15 + counter * 2] * 2 + 1] = [FILE_TABLE + [currentPCB + 15 + counter * 2] * 2 + 1] - 1;
+			if ([FILE_TABLE + [currentPCB + 15 + counter * 2] * 2 + 1] == 0) then				
+				[FILE_TABLE + [currentPCB + 15 + counter * 2] * 2] = -1;
+			endif;
+			[currentPCB + 15 + counter * 2] = -1;
+			[currentPCB + 15 + counter * 2 + 1] = -1;	
+		endif;
+		counter = counter + 1;
+	endwhile;
+	
+	[currentPCB + 1] = 0;
+	
+	counter = 0;
+	while(counter < PTLR) do
+		if([MEM_LIST + [PTBR + counter*2]] == 1) then
+			[MEM_LIST + [PTBR + counter*2]] = 0;
+		endif;
+
+		//wbtswoft
+
+		[PTBR + counter*2] = -1; 
+		[PTBR + counter*2 + 1] = "00";			
+		counter = counter + 1;
+	endwhile;
+
+	// Find the next ready process from the Ready List of PCBs
+	newPID = currentPID;
+
+	while(1 < 2) do
+		newPID = (newPID + 1) % 32;
+		newPCB = READY_LIST + newPID*32;
+		if([newPCB+1] == 1 || [newPCB+1] == 100 + currentPID) then
+			break;
+		endif;
+
+	endwhile;
+	
+
+	BP = [newPCB + 2];
+	SP = [newPCB + 3];
+	PTBR = [newPCB + 5];
+	PTLR = [newPCB + 6];
+	R0 = [newPCB + 7];
+	R1 = [newPCB + 8];
+	R2 = [newPCB + 9];
+	R3 = [newPCB + 10];
+	R4 = [newPCB + 11];
+	R5 = [newPCB + 12];
+	R6 = [newPCB + 13];
+	R7 = [newPCB + 14];
+
+	SP = SP + 1; // IP to be stored on the top of the stack, hence incrementing
+	newphysicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+	[newphysicalSP] = [newPCB + 4];
+	[newPCB + 1] = 2;
+
+	[physicalSP - 2] = 0;
+	
+	ireturn;
+	
+endif;
+
+if (sysCallNo == 13) then
+	WaitingPID = [physicalSP -3];
+	WaitingPCB = READY_LIST + WaitingPCB*32;
+	if ([WaitingPCB + 1] == 0 || [WaitingPCB + 1] == 2) then
+		[physicalSP - 1] = -1;
+		ireturn;
+	endif;
+
+	[currentPCB + 1] = 100 + WaitingPID;
+
+
+	// Find the next ready process from the Ready List of PCBs
+	// newPID = currentPID;
+	// while(currentPID != (newPID+1)%32) do
+	 //	newPID = (newPID + 1) % 32;
+	 //	newPCB = READY_LIST + newPID*32;
+	 //	if([newPCB+1] == 1) then
+   	 //		break;
+	 //	endif;
+	// endwhile;
+
+	counter=0;
+	while (counter < 32) do
+		if([READY_LIST + 32*counter + 1] == 1) then
+			break;
+		endif;
+		counter = counter + 1;
+	endwhile;
+
+	// store the context of the current process
+	[currentPCB + 2] = BP;
+	[currentPCB + 3] = SP - 1;
+	[currentPCB + 4] = [physicalSP];
+	[currentPCB + 5] = PTBR;
+	[currentPCB + 6] = PTLR;
+	[currentPCB + 7] = R0;
+	[currentPCB + 8] = R1;
+	[currentPCB + 9] = R2;
+	[currentPCB + 10] = R3;
+	[currentPCB + 11] = R4;
+	[currentPCB + 12] = R5;
+	[currentPCB + 13] = R6;
+	[currentPCB + 14] = R7;		
+
+	// store to current PCB
+
+	newPCB = READY_LIST + newPID * 32;
+	
+	BP = [newPCB + 2];
+	SP = [newPCB + 3];
+	PTBR = [newPCB + 5];
+	PTLR = [newPCB + 6];
+	R0 = [newPCB + 7];
+	R1 = [newPCB + 8];
+	R2 = [newPCB + 9];
+	R3 = [newPCB + 10];
+	R4 = [newPCB + 11];
+	R5 = [newPCB + 12];
+	R6 = [newPCB + 13];
+	R7 = [newPCB + 14];
+
+	SP = SP + 1; // IP to be stored on the top of the stack, hence incrementing
+	newphysicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+	[newphysicalSP] = [newPCB + 4];
+	[newPCB + 1] = 2;
+
+	[physicalSP - 2] = 0;
+
+	ireturn;
+
+
+endif;
+

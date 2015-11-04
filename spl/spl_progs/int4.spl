@@ -1,0 +1,94 @@
+alias physicalSP S0;
+alias sysCallNo S1;
+alias currentPID S2;
+alias currentPCB S3;
+alias fileDescriptor S4;
+alias wordToWrite S5;
+alias SWOFTIndex S6;
+alias LSEEKValue S7;
+alias FATIndex S8;
+alias blockNo S9; // To which wordToWrite to be writtten
+alias DFLIndex S10;
+alias blockToWrite S11;
+
+
+// get phyisicalSP from SP
+physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+
+// Get the sysytem call number
+sysCallNo = [physicalSP-1];
+
+currentPID = (PTBR - 1024) / 8;
+currentPCB = READY_LIST + 32*currentPID;
+
+if (sysCallNo == 5) then
+	// write system call
+
+	// File Descripter is push first to stack followed by wordToWrite
+	wordToWrite = [physicalSP - 3];
+	fileDescriptor = [physicalSP - 4];
+
+	if (fileDescriptor > 7 || fileDescriptor < 0) then
+		// invalid entry for fileDescriptor
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+
+	SWOFTIndex = [currentPCB + 15 + fileDescriptor * 2];
+	LSEEKValue = [currentPCB + 15 + fileDescriptor * 2 + 1];	
+
+	FATIndex = [FILE_TABLE + SWOFTIndex * 2];
+
+	// load the basic block from the FAT to the scratchpad
+	load(1, [FAT + FATIndex * 8 + 2]);
+
+	// get blockNo to be written from LSEEk value
+	blockNo = LSEEKValue/512;
+
+	if ([SCRATCHPAD + blockNo] == -1) then
+		// Since data block is empty, allocate a new block
+		
+		// scan for a free block in Disk Free List
+		DFLIndex = 23;
+		while( DFLIndex < 448 ) do
+			if([DISK_LIST + DFLIndex] == 0) then
+				break;
+			endif;
+			DFLIndex = DFLIndex + 1;
+		endwhile;
+	
+		if(DFLIndex == 448) then
+			[physicalSP - 1] = -1;
+			ireturn;
+		endif;
+
+		// Modify disk free list by validating the selected block
+		[DISK_LIST + DFLIndex] = 1;
+		
+		// Add this data block in block list
+		[SCRATCHPAD + blockNo] = DFLIndex;
+
+		// store back the basic block
+		store(1, [FAT + FATIndex * 8 + 2]);
+
+		// Modify fileSize
+		[FAT + FATIndex * 8 + 1] = [FAT + FATIndex * 8 + 1] + 512;	
+	endif;	
+
+	blockToWrite = [SCRATCHPAD + blockNo];
+	load(1, blockToWrite);
+	[SCRATCHPAD + LSEEKValue % 512] = wordToWrite;
+	store(1, blockToWrite);
+	[currentPCB + 15 + fileDescriptor * 2 + 1] = [currentPCB + 15 + fileDescriptor * 2 + 1] + 1; // lseek value modified
+
+
+	store(5, 19);	// store the FAT
+	store(6, 20);	// store the Disk Free List
+
+	// success
+	[physicalSP - 2] = 0;
+	ireturn;
+
+
+endif;
+

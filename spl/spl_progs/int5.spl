@@ -1,0 +1,24 @@
+// fork system call
+// system call number 8
+// argument null
+// output: parent | child_pid, child | -2 for success
+	// parent | -1, child | no child
+
+
+// find system call number
+
+///////////////////////////////////////////////////////////////////
+
+// if system call number is 8, then do fork system call
+
+	// Find a free PCB for child process
+
+	// return -1 if not available
+
+////////////////////////////////////////////////////////////////////// 
+
+	// Set the PID field for child process in the PCB
+
+/////////////////////////////////////////////////////////////////////
+
+		
