@@ -148,6 +148,8 @@ if (sysCallNo == 13) then
 		counter = counter + 1;
 	endwhile;
 
+	newPID = counter;
+
 	// store the context of the current process
 	[currentPCB + 2] = BP;
 	[currentPCB + 3] = SP - 1;

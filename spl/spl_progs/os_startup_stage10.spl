@@ -1,0 +1,165 @@
+// OS Startup code for XOS
+
+alias counter S0;
+alias PPOFTIndex S1;
+
+// load exception handler
+load(7, 1);
+load(8, 2);
+
+// load interrupt routine 1
+load(11, 5);
+load(12, 6);
+
+// load the timer interrupt routine
+load(9, 3);
+load(10, 4);
+
+// load interrupt routine 2
+load(13, 7);
+load(14, 8);
+// interrupt routine 3
+load(15, 9);
+load(16, 10);
+// interrupt routine 4
+load(17, 11);
+load(18, 12);
+// interrupt routine 5
+load(19, 13);
+load(20, 14);
+// interrupt routine 6
+load(21, 15);
+load(22, 16);
+// interrupt routine 7
+load(23, 17);
+load(24, 18);
+
+
+// load the FAT
+load(5, 19);
+
+// load the Disk Free List
+load(6, 20);
+
+
+breakpoint;
+
+
+// Update memory free list
+counter = 0;
+while( counter < 64 ) do
+	if( counter < 25 ) then
+		[MEM_LIST + counter] = 1;
+	else 
+		[MEM_LIST + counter] = 0;
+	endif;
+	counter = counter + 1;
+endwhile;
+
+// Clear the memory copy of disk free list in the memory (Swap space)
+counter = 448;
+while (counter < 512) do
+	[DISK_LIST + counter] = 0;
+	counter = counter + 1;
+endwhile;
+
+
+// set the entries of the System-Wide Open File Table to invalid
+			
+counter = 0;
+while ( counter <  128) do			// 64 entries, each of size 2 words
+	[ FILE_TABLE + counter + 0] = -1;	// Set FAT Index to -1
+	[ FILE_TABLE + counter + 1] =  0;	// Set File Open Count to 0
+	counter = counter + 2;			// Move to next entry
+endwhile;
+
+
+// Initialize all PCBs with state field 0
+counter = 0;
+while( counter < 32 ) do
+	[READY_LIST + counter*32 + 1] = 0;
+	PPOFTIndex = 0;
+	while (PPOFTIndex < 8) do
+		[READY_LIST + counter * 32 + 15 + PPOFTIndex * 2] = -1;
+		[READY_LIST + counter * 32 + 15 + PPOFTIndex * 2 + 1] = -1;
+		PPOFTIndex = PPOFTIndex + 1;
+	endwhile;	
+	counter = counter + 1;
+endwhile;
+
+
+// Commit the Disk Free List back to Disk
+store(6,20);
+
+
+
+
+// Initialize all PCBs with state field 0
+counter = 0;
+while( counter < 32 ) do
+	[READY_LIST + counter*32 + 1] = 0;
+	PPOFTIndex = 0;
+	while (PPOFTIndex < 8) do
+		[READY_LIST + counter * 32 + 15 + PPOFTIndex * 2] = -1;
+		[READY_LIST + counter * 32 + 15 + PPOFTIndex * 2 + 1] = -1;
+		PPOFTIndex = PPOFTIndex + 1;
+	endwhile;	
+	counter = counter + 1;
+endwhile;
+
+
+
+// allocate PID of first process which is INIT
+
+[READY_LIST + 0] = 0;
+[READY_LIST + 31] = 0; // doing for stage 11
+
+[READY_LIST + 1] = 2; // set the entry for STATE as running
+
+
+
+// load(25,21); 
+// load(26,22); 
+// load(27,23); 
+
+// page table for INIT must be set up used for address translation
+
+PTBR = 1024;
+PTLR = 4;	// by default
+
+// set up entries for page table
+
+// assigning disk block numbers
+[PTBR + 0] = 21;
+[PTBR + 1] = "00";	// not referenced but valid
+[PTBR + 2] = 22;
+[PTBR + 3] = "00";
+[PTBR + 4] = 23;
+[PTBR + 5] = "00";
+
+// assignning memory block
+[PTBR + 6] = 25;	// memory for stack
+[PTBR + 7] = "01";
+
+[MEM_LIST + 25] = 1;
+
+
+
+// set the per-process open file table entries of the INIT process to invalid
+
+counter = 0;
+
+while (counter < 16) do
+
+	[READY_LIST + 15 + counter] = -1;
+	counter = counter + 2;
+	
+endwhile;
+
+SP = 3 * 512;
+
+[25 * 512] = 0;
+
+breakpoint;
+
+ireturn;

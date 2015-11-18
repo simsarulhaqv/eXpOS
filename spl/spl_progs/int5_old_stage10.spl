@@ -1,0 +1,253 @@
+alias currentPID S0;
+alias currentPCB S1;
+alias counter S2;
+alias newPCB S3;
+alias physicalSP S4;
+alias newPID S5;
+alias sysCallNo S6;
+alias validpageCount S7;
+// alias memorypageCount S8;
+alias memPage S8;
+alias memoryAllocateCount S9;
+alias newPTBR S10;
+alias Index S11;
+alias newphysicalSP S12;
+alias victimPage S13;
+alias victimCounter S14;
+alias swapIndex S7;
+// use s9
+
+
+currentPID = (PTBR-1024)/8;
+currentPCB = READY_LIST + currentPID*32;
+
+physicalSP = ([PTBR + 2*(SP/512)]*512) + (SP % 512);
+
+sysCallNo = [physicalSP - 1];
+
+// fork system call
+if (sysCallNo == 8) then
+	
+	// search for a free pcb for the child
+	newPID = (currentPID+1)%32;
+	newPCB = READY_LIST + 32*newPID;
+	counter=0;
+	while(counter<32) do
+		if([newPCB+1] == 0) then
+			break;
+		else
+			newPID = (newPID+1)%32;
+			newPCB = READY_LIST + 32*newPID;
+		endif;
+		counter=counter+1;
+	endwhile;
+	
+	if( counter >= 32 ) then
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+
+
+	// set the pid value 
+	[newPCB] = newPID;
+	[newPCB + 31] = currentPID; // doing for stage 11
+
+
+	// find the child PTBR from the newPID
+	newPTBR = PAGE_TABLE + newPID*8;
+
+
+	// look for a free memory space
+	counter = 0;
+	while(counter < 64) do
+		if( [MEM_LIST + counter] == 0) then
+			memPage = counter;
+			break;	
+		endif;
+		counter = counter + 1;
+	endwhile;
+	
+	// print("Mark -2");
+	breakpoint;
+       	// print(counter);
+
+	if(counter == 64) then
+		// [physicalSP - 2] = -1;
+		// no entry in the memory free list
+		// select victim page and swap into disk and proceed
+		
+		// get the exception causing entry
+		// (1024 + newPID * 8) is newPTBR
+		// additional 6 is for reaching stack entry
+		// decremented 1024, since we are using PAGE_TABLE later
+		victimPage = (1024 + newPID * 8) - 1024 + 6; 
+		
+		
+		while(1) do
+			victimCounter = (victimPage + 2) % 256;
+			
+			while( victimPage != victimCounter ) do
+				// check if page is being used for stack
+				if (victimCounter % 8 == 6) then
+					victimCounter = (victimCounter + 2) % 256;
+					continue;
+				endif;
+
+				// reference bit is 0
+				if ([PAGE_TABLE + victimCounter + 1] == "01") then
+					
+					// check if the memory page is shared or not
+					if ([MEM_LIST + [PAGE_TABLE + victimCounter]] > 1) then
+						victimCounter = victimCounter + 2;
+						continue;
+					endif;
+
+					// now we have found a victim page, scan the memory copy of the disk free list for a free block in the swap area		
+					swapIndex = 448;
+					while (swapIndex < 512) do
+						if ([DISK_LIST + swapIndex] == 0) then
+
+							// swapping out, means storing in the Swap area of the disk and freeing the memory page.
+							store([PAGE_TABLE + victimCounter], swapIndex);
+
+							// mark swap disk block as used
+							[DISK_LIST + swapIndex] = 1;
+
+							// store the index of the obtained page 
+							memPage = [PAGE_TABLE + victimCounter];
+
+							// mark page table entry to point to swap block
+							[PAGE_TABLE + victimCounter] = swapIndex;
+
+							// set auxiliary information of page as invalid
+							[PAGE_TABLE + victimCounter + 1] = "00";
+							break;						
+						endif;
+						swapIndex = swapIndex + 1;
+					endwhile;
+						
+					if (swapIndex == 512) then
+						// no space to swap out
+						SP = SP + 1;
+						[physicalSP] = 10;
+						inline "JMP 11776";
+					endif;
+					
+					if (swapIndex != 512) then
+						// we have found swap block
+						break;
+					endif;					
+						
+				endif;
+			
+				if ([PAGE_TABLE + victimCounter + 1] == "11") then
+					// change auxiliary information
+					// this gives a second chance
+					[PAGE_TABLE + victimCounter + 1] = "01";
+				endif;
+				
+				victimCounter = (victimCounter + 2) % 256;		
+					
+			endwhile;
+			
+			if(victimCounter != victimPage) then
+				break;
+			endif;	
+			
+		endwhile;
+	endif;
+
+	// print("Mark -1");
+
+	// updating mem free list for the memry space of stack
+	[MEM_LIST + memPage] = 1;
+
+
+	// copy word by word to the new memory location of stack
+	Index = 0;
+	while (Index < 512) do
+		[memPage * 512 + Index] = [[PTBR + 6] * 512 + Index]; // [PTBR + 6] is the stack
+		Index = Index + 1;
+	endwhile;
+
+	// print("MemPage");
+	// print(memPage);	
+
+	// set the page table entry for the stack
+	[newPTBR + 6] = memPage;
+	[newPTBR + 7] = "01";	
+
+
+
+	// copy the entries other than stack from the page table of stack one by one to the page table of the child process including auxilliary information
+	counter = 0;
+	while (counter < 3) do
+		[newPTBR + counter * 2] = [PTBR + counter * 2];
+		[newPTBR + counter * 2 + 1] = [PTBR + counter * 2 + 1];
+		
+		// To indicate shared processes in the memory free list
+		if ([PTBR + counter * 2 + 1] == "01" || [PTBR + counter * 2 + 1] == "11") then
+			[MEM_LIST + [PTBR + counter * 2]] = [MEM_LIST + [PTBR + counter * 2]] + 1;
+		endif;
+		
+		// For those with valid bit "0" and physical page number greater then 447 (indicating code block is the disk in swap region) 
+		if ([PTBR + counter * 2 + 1] == "00" && [PTBR + counter * 2] > 447) then
+			// Code block is in the swap region
+			[DISK_LIST + [PTBR + counter * 2]] = [DISK_LIST + [PTBR + counter * 2]] + 1;
+			// this is used to indicate that the swap block is now shared by more than one process
+			store(6, 20); // disk free list back to memory
+		endif;
+		// we are doing the above because, the parent process might swap in the page from the swap area of the disk to the memory  and it will only free this block, if it is not shared by any other process.
+		counter = counter + 1;
+	endwhile;		
+
+
+	// setting PCB of child
+	[newPCB+1] = 1;
+	[newPCB+2] = BP;
+	[newPCB+3] = SP-1;
+	[newPCB+4] = [physicalSP];
+	[newPCB+5] = newPTBR;
+	[newPCB+6] = 4; // PTLR
+	[newPCB+7] = R0; 
+	[newPCB+8] = R1;
+	[newPCB+9] = R2;
+	[newPCB+10] = R3;
+	[newPCB+11] = R4;
+	[newPCB+12] = R5;
+	[newPCB+13] = R6;
+	[newPCB+14] = R7;
+
+	// set the per process open file table for child process
+	counter = 0;
+	while(counter < 8) do
+		if ([currentPCB + 15 + counter*2] != -1) then
+			[newPCB + 15 + counter*2] = [currentPCB + 15 + counter*2];
+			[newPCB + 15 + counter*2+1] = [currentPCB + 15 + counter*2+1];
+			// updating SWOFT
+			[FILE_TABLE + [newPCB + 15 + counter*2]*2 + 1] = [FILE_TABLE + [newPCB + 15 + counter*2]*2 + 1] + 1;
+		else
+			[newPCB + 15 + counter*2] = [currentPCB + 15 + counter*2];
+			[newPCB + 15 + counter*2+1] = [currentPCB + 15 + counter*2+1];
+		endif;			
+		counter = counter+1;
+	endwhile;
+
+
+	[newPCB + 1] = 1;
+
+	// set return address for parent
+	[physicalSP - 2] = newPID;
+
+	// set return address of the child after finding the physical address
+	newphysicalSP = ([newPTBR + 2 * ((SP - 1) / 512)] * 512) + ((SP - 1) % 512);	
+	[newphysicalSP - 1] = -2;
+	
+	breakpoint;
+	
+
+	ireturn;
+endif;	
+	
+
+

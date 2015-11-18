@@ -9,9 +9,9 @@ integer main() {
 		status = Fork();
 		if (status == -2) then
 			// this is child process
-			print("before exec");
+			// print("before exec");
 			status = Exec(input);
-			print("completed exec");
+			// print("completed exec");
 			if (status == -1) then
 				print("Exec error");
 			endif;
@@ -20,7 +20,7 @@ integer main() {
 		if (status == -1) then
 			print("Fork error");
 		else
-			status = Wait(status);
+		 	status = Wait(status);
 		endif;
 
 		print("Shell:> $ ");

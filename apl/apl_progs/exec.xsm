@@ -5,6 +5,8 @@ PUSH R0
 JMP 00010
 PUSH BP
 MOV BP,SP
+MOV R0, "current pid"
+OUT R0
 MOV R0, 1536
 PUSH R0
 MOV R1, 11
@@ -15,6 +17,8 @@ POP R1
 MOV [R0], R1
 MOV R0, 1536
 MOV R0, [R0]
+OUT R0
+MOV R0, "parent pid"
 OUT R0
 MOV R0, 1536
 PUSH R0
@@ -45,7 +49,7 @@ MOV R1, 0
 MOV R2, 2
 SUB R1, R2
 EQ R0, R1
-JZ R0, 00124
+JZ R0, 00132
 MOV R0, " Exec in action"
 OUT R0
 MOV R0, 1536
@@ -59,8 +63,8 @@ POP R2
 POP R1
 POP R2
 MOV [R0], R1
-JMP 00124
-MOV R0, "not to be printed"
+JMP 00132
+MOV R0, "Parent process."
 OUT R0
 MOV R0, 10
 PUSH R0

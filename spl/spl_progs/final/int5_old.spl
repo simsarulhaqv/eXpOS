@@ -1,0 +1,190 @@
+alias currentPID S0;
+alias currentPCB S1;
+alias counter S2;
+alias newPCB S3;
+alias physicalSP S4;
+alias newPID S5;
+alias sysCallNo S6;
+alias validpageCount S7;
+alias memorypageCount S8;
+alias memoryAllocateCount S9;
+alias newPTBR S10;
+alias Index S11;
+alias newphysicalSP S12;
+
+currentPID = (PTBR-1024)/8;
+currentPCB = READY_LIST + currentPID*32;
+
+physicalSP = ([PTBR + 2*(SP/512)]*512) + (SP % 512);
+
+sysCallNo = [physicalSP - 1];
+
+// fork system call
+if (sysCallNo == 8) then
+	
+	// search for a free pcb
+	
+	//counter = 0;
+	//while( counter < 32 ) do
+	//	if ( [READY_LIST + counter*32 + 1] == 0 ) then
+	//		newPCB = READY_LIST + counter*32;
+	//		break;
+	//	endif;
+	//	counter = counter + 1;
+	//endwhile;
+
+	newPID = (currentPID+1)%32;
+	newPCB = READY_LIST + 32*newPID;
+	counter=0;
+	while(counter<32) do
+		if([newPCB+1] == 0) then
+			break;
+		else
+			newPID = (newPID+1)%32;
+			newPCB = READY_LIST + 32*newPID;
+		endif;
+		counter=counter+1;
+	endwhile;
+
+	// print newPID;
+	
+	if( counter >= 32 ) then
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+	
+	//newPID = (newPCB - READY_LIST) / 32;
+
+
+	[newPCB] = newPID;
+	[newPCB + 31] = currentPID; // doing for stage 11
+	newPTBR = PAGE_TABLE + newPID*8;
+	
+	// duplicate valid pages for child process also
+	// count the number of valid pages of parent and store in validpageCount
+	validpageCount = 0;
+	counter = 0;
+
+	while ( counter < PTLR ) do
+		if([PTBR + counter*2 + 1] == "01" || [PTBR + counter*2 + 1] =="11") then
+			validpageCount = validpageCount + 1;
+		endif; 
+		counter = counter + 1;
+	endwhile;	 
+
+	// There should exist atleast same number of pages in the memory free list, else error
+	memorypageCount = 0;
+	counter = 0;
+	while ( counter < 64 ) do
+		if( [MEM_LIST + counter] == 0 ) then
+			memorypageCount = memorypageCount + 1;
+		endif;
+		if (validpageCount == memorypageCount) then
+			break;
+		endif;
+		counter = counter + 1;
+	endwhile; 
+
+	// print memorypageCount;
+	// print validpageCount;
+
+
+	if( validpageCount > memorypageCount ) then
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+
+
+
+
+	
+	// if there is enough space in the memory free list, allocate required number of pages for child process in memeory list as 1 and copy the contents of parent process word-by-word to the child process
+
+
+	counter=0;
+	while(counter < PTLR) do
+
+		//if([PTBR + counter*2 + 1] == "00") then
+		//	print "hello";
+		//	print [PTBR + counter*2 + 1];
+		//	[newPTBR + counter*2 + 1] = "00";
+		//	counter=counter+1;
+		//	continue;
+		//endif;
+		//if([PTBR + counter*2 + 1] == "10") then
+		//	[newPTBR + counter*2 + 1] = "10";
+		//	counter=counter+1;
+		//	continue;
+		//endif;
+
+
+		if([PTBR + counter*2 + 1] == "01" || [PTBR + counter*2 + 1] =="11") then
+			memoryAllocateCount=0;
+			while( memoryAllocateCount < 64 ) do
+				if( [MEM_LIST + memoryAllocateCount] == 0) then
+					[MEM_LIST + memoryAllocateCount] = 1;
+					break;
+				endif;
+				memoryAllocateCount = memoryAllocateCount + 1;
+			endwhile;
+			// copy the contents of parent process word-by-word to the child process
+			Index=0; 
+			while( Index < 512 ) do
+				[memoryAllocateCount*512 + Index] = [[PTBR + counter*2]*512 + Index];
+				Index=Index+1;
+			endwhile;
+			// update page table of child
+			[newPTBR + counter*2] = memoryAllocateCount;
+			[newPTBR + counter*2 + 1] = [PTBR + counter*2 + 1];
+		endif;
+		counter=counter+1;
+	endwhile; 
+
+
+	// print([physicalSP]);
+
+	// setting PCB of child
+	[newPCB+1] = 1;
+	[newPCB+2] = BP;
+	[newPCB+3] = SP-1;
+	[newPCB+4] = [physicalSP];
+	[newPCB+5] = newPTBR;
+	[newPCB+6] = 4; // PTLR
+	[newPCB+7] = R0; 
+	[newPCB+8] = R1;
+	[newPCB+9] = R2;
+	[newPCB+10] = R3;
+	[newPCB+11] = R4;
+	[newPCB+12] = R5;
+	[newPCB+13] = R6;
+	[newPCB+14] = R7;
+
+	// set the per process open file table for child process
+	counter = 0;
+	while(counter < 8) do
+		if ([currentPCB + 15 + counter*2] != -1) then
+			[newPCB + 15 + counter*2] = [currentPCB + 15 + counter*2];
+			[newPCB + 15 + counter*2+1] = [currentPCB + 15 + counter*2+1];
+			// updating SWOFT
+			[FILE_TABLE + [newPCB + 15 + counter*2]*2 + 1] = [FILE_TABLE + [newPCB + 15 + counter*2]*2 + 1] + 1;
+		else
+			[newPCB + 15 + counter*2] = [currentPCB + 15 + counter*2];
+			[newPCB + 15 + counter*2+1] = [currentPCB + 15 + counter*2+1];
+		endif;			
+		counter = counter+1;
+	endwhile;
+
+	[physicalSP - 2] = newPID;
+
+	newphysicalSP = ([newPTBR + 2 * ((SP - 1) / 512)] * 512) + ((SP - 1) % 512);
+		
+	
+	[newphysicalSP - 1] = -2;
+	// print "hello";
+	// print([physicalSP]);
+
+	ireturn;
+endif;	
+	
+
+

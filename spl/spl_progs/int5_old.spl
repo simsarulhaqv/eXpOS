@@ -54,6 +54,8 @@ if (sysCallNo == 8) then
 	endif;
 	
 	//newPID = (newPCB - READY_LIST) / 32;
+
+
 	[newPCB] = newPID;
 	[newPCB + 31] = currentPID; // doing for stage 11
 	newPTBR = PAGE_TABLE + newPID*8;
@@ -101,6 +103,7 @@ if (sysCallNo == 8) then
 
 	counter=0;
 	while(counter < PTLR) do
+
 		//if([PTBR + counter*2 + 1] == "00") then
 		//	print "hello";
 		//	print [PTBR + counter*2 + 1];
@@ -108,11 +111,13 @@ if (sysCallNo == 8) then
 		//	counter=counter+1;
 		//	continue;
 		//endif;
-		if([PTBR + counter*2 + 1] == "10") then
-			[newPTBR + counter*2 + 1] = "10";
-			counter=counter+1;
-			continue;
-		endif;
+		//if([PTBR + counter*2 + 1] == "10") then
+		//	[newPTBR + counter*2 + 1] = "10";
+		//	counter=counter+1;
+		//	continue;
+		//endif;
+
+
 		if([PTBR + counter*2 + 1] == "01" || [PTBR + counter*2 + 1] =="11") then
 			memoryAllocateCount=0;
 			while( memoryAllocateCount < 64 ) do

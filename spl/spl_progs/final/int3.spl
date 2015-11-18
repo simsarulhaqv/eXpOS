@@ -1,0 +1,120 @@
+alias physicalSP S0;
+alias sysCallNo S1;
+alias currentPID S2;
+alias currentPCB S3;
+alias fileDescriptor S4;
+alias newLSEEK S5;
+alias FATIndex S6;
+alias SWOFTIndex S7;
+alias fileSize S8;
+alias LSEEKValue S9;
+alias newOffset S10;
+
+// get phyisicalSP from SP
+physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+
+// Get the sysytem call number
+sysCallNo = [physicalSP-1];
+
+currentPID = (PTBR - 1024) / 8;
+currentPCB = READY_LIST + 32*currentPID;
+
+if (sysCallNo == 6) then
+	// Seek system call
+
+	// File Descripter is push first to stack followed by newLSeek
+	fileDescriptor = [physicalSP - 4];
+	//newLSEEK = [physicalSP - 3];
+	newOffset = [physicalSP -3];
+
+
+	if (fileDescriptor > 7 || fileDescriptor < 0) then
+		// invalid entry for fileDescriptor
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+
+	// Check the validity of the fileDescriptor
+	if ([currentPCB + 15 + fileDescriptor * 2] == -1) then
+		// invalid entry
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+
+	// Need to find FATIndex from filedescriptor
+	SWOFTIndex = [currentPCB + 15 + fileDescriptor * 2];
+	FATIndex = [FILE_TABLE +  SWOFTIndex * 2]; 
+
+	fileSize = [FAT + FATIndex * 8 + 1];
+
+
+	newLSEEK = [currentPCB + 15 + fileDescriptor * 2 + 1] + newOffset;
+
+	if (newOffset==0) then
+		newLSEEK = 0;
+		
+	endif;
+
+
+	// validate new LSEEK position
+	if (newLSEEK < 0 || newLSEEK > fileSize) then
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+
+
+
+
+	// change LSEEk value in PPOFT
+	[currentPCB + 15 + fileDescriptor * 2 + 1] = newLSEEK;
+
+	// success
+	[physicalSP - 2] = 0;
+	ireturn;					
+	
+endif;
+
+if (sysCallNo == 7) then
+	// read system call
+
+	// File Descripter is push first to stack followed by wordRead
+	fileDescriptor = [physicalSP - 4];
+	
+	if (fileDescriptor > 7 || fileDescriptor < 0) then
+		// invalid entry for fileDescriptor
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+
+	LSEEKValue = [currentPCB + 15 + fileDescriptor * 2 + 1];
+
+	// Need to find FATIndex from filedescriptor
+	SWOFTIndex = [currentPCB + 15 + fileDescriptor * 2];
+	FATIndex = [FILE_TABLE +  SWOFTIndex * 2];
+
+	// load the basic block to the scratchpad
+	load(1, [FAT + FATIndex * 8 + 2]);
+
+	fileSize = [FAT + FATIndex * 8 + 1];
+
+	// check if LSEEK position is at EOF
+	if (LSEEKValue == fileSize) then
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+
+	// load the block from which the disk is to be read onto the scratchpad
+	load(1, [SCRATCHPAD + (LSEEKValue / 512)]);
+
+	// read the specified value using offset and store in wordRead
+	[physicalSP - 3] = [SCRATCHPAD + (LSEEKValue % 512)];
+
+	// increment LSEEK position by one in the PPOFT
+	[currentPCB + 15 + fileDescriptor * 2 + 1] = LSEEKValue + 1;
+
+	//success
+	[physicalSP - 2] = 0;
+	ireturn;
+			
+endif;
+

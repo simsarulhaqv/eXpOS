@@ -1,7 +1,7 @@
 integer main() {
 	integer status;
 	status = Wait(0);
-	print(status); 
+	// print(status); 
 	print("on waiting");
 	status = Signal();
 	print("releasing");

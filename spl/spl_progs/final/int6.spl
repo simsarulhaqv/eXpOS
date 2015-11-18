@@ -1,0 +1,174 @@
+alias physicalSP S0;
+alias sysCallNo S1;
+alias fileName S2;
+alias currentPID S8;
+alias currentPCB S9;
+alias counter S3;
+alias FATIndex S4;
+alias codeBlockCounter S5;
+alias validBlockCounter S6;
+alias diffCounter S7;
+
+
+physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+sysCallNo = [physicalSP - 1];
+currentPID = (PTBR - 1024) / 8;
+currentPCB = READY_LIST + 32 * currentPID;
+
+// exec system call
+if (sysCallNo == 9) then
+	fileName = [physicalSP - 3];
+	FATIndex = 0;
+	while (FATIndex < 64) do	
+		if ([FAT + FATIndex * 8] == fileName) then
+			break;			
+		endif;		
+		FATIndex = FATIndex + 1;	
+	endwhile;
+
+	if (FATIndex == 64) then				
+		[physicalSP - 2] = -1;
+		print "No file";
+		ireturn;	
+	endif;
+
+	// load basic block to scratchpad
+	load(1, [FAT + FATIndex * 8 + 2]);
+
+	// print [FAT + FATIndex * 8 + 2];
+
+	counter=0;
+	codeBlockCounter = 0;
+	// To count the number of code blocks of the new program
+	while( counter < 256 ) do
+		// if ([SCRATCHPAD + counter] > 0 && [SCRATCHPAD + counter] < 512) then
+		if ([SCRATCHPAD + counter] != -1) then
+			codeBlockCounter = codeBlockCounter + 1;
+			// print "hello...";
+		else 
+			break;
+		endif;	
+		counter = counter + 1;
+	endwhile;
+	
+	// print counter;	
+
+	if (codeBlockCounter > 3) then
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+
+	validBlockCounter = 0;
+	counter = 0;
+	while(counter < 3) do // here we are not considering stack page , hence PTLR-1
+		if ([PTBR + counter * 2 + 1] == "01" || [PTBR + counter * 2 + 1] == "11") then
+			validBlockCounter = validBlockCounter + 1;
+		endif;
+		counter = counter + 1;
+	endwhile;
+
+	//checking
+
+	// print validBlockCounter;
+	// print codeBlockCounter;
+
+	//endchecking
+
+	if(validBlockCounter > codeBlockCounter) then
+		while (validBlockCounter != codeBlockCounter) do
+			validBlockCounter = validBlockCounter - 1;
+			[PTBR + validBlockCounter * 2 + 1] = "00";
+			[PTBR + validBlockCounter * 2] = -1;
+		endwhile;
+	endif;	
+
+	if (validBlockCounter < codeBlockCounter) then
+		diffCounter = codeBlockCounter - validBlockCounter;
+		counter = 0;
+		while(counter < 64 && diffCounter > 0) do
+			if ([MEM_LIST + counter] == 0) then
+				diffCounter = diffCounter - 1;
+			endif;	
+			counter = counter + 1;			
+		endwhile; 
+
+		if (counter == 64) then
+			[physicalSP - 2] = -1;
+			ireturn;
+		endif;
+
+		// update memory free list and page table entries
+		diffCounter = codeBlockCounter - validBlockCounter;
+		counter = 0;
+		
+		while (counter < 64 && diffCounter > 0) do		
+			if ([MEM_LIST + counter] == 1) then
+				counter = counter + 1;
+				continue;
+			endif;			
+
+			[MEM_LIST + counter] = 1;
+			[PTBR + (codeBlockCounter - diffCounter) * 2] = counter;
+			[PTBR + (codeBlockCounter - diffCounter) * 2 + 1] = "01";
+
+			diffCounter = diffCounter - 1;
+			counter = counter + 1;
+		endwhile;
+	endif;
+
+		
+
+	// load the blocks of the file to the memory in pages of the current process
+	counter = 0;
+	while (counter < codeBlockCounter) do
+		load([PTBR + counter * 2], [SCRATCHPAD + counter]);
+		counter = counter + 1;
+	endwhile;
+
+
+	// close all files opened by the current process
+	counter = 0;
+	while (counter < 8) do
+		if ([currentPCB + 15 + counter * 2] != -1) then				
+			[FILE_TABLE + [currentPCB + 15 + counter * 2] * 2 + 1] = [FILE_TABLE + [currentPCB + 15 + counter * 2] * 2 + 1] - 1;
+			if ([FILE_TABLE + [currentPCB + 15 + counter * 2] * 2 + 1] == 0) then				
+				[FILE_TABLE + [currentPCB + 15 + counter * 2] * 2] = -1;
+			endif;
+			[currentPCB + 15 + counter * 2] = -1;
+			[currentPCB + 15 + counter * 2 + 1] = -1;	
+		endif;
+		counter = counter + 1;
+	endwhile;
+
+	
+
+	SP = 3 * 512;
+	physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+
+	[physicalSP] = 0;
+
+	//print "hello";
+	//print validBlockCounter;
+	//print codeBlockCounter;
+	
+
+	ireturn;
+
+endif;		
+
+// getpid system call
+if (sysCallNo == 11) then
+	[physicalSP - 2] = currentPID;
+	ireturn;
+endif;
+
+if (sysCallNo == 12) then
+
+	if ([currentPCB + 31] < 0 || [currentPCB + 31] > 31) then
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+
+	[physicalSP -2] = [currentPCB + 31];
+	ireturn;
+endif;

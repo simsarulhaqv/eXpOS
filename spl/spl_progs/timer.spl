@@ -4,13 +4,17 @@ alias physicalSP S2;
 alias newPCB S3;
 alias newphysicalSP S4;
 alias newPID S5;
+alias counter S6;
 
+// find the current pid and pcb
 currentPID=(PTBR-1024)/8;
 currentPCB=READY_LIST+32*currentPID;
 
+// save the context of the current process
 [currentPCB+1]=1;
 [currentPCB+2]=BP;
 [currentPCB+3]=SP-1;
+// SP -1 because when an interrupt occurs, IP value is stored on the top of the stack. hence the SP value will be SP-1
 
 physicalSP=([PTBR+2*(SP/512)]*512)+(SP%512);
 
@@ -26,12 +30,17 @@ physicalSP=([PTBR+2*(SP/512)]*512)+(SP%512);
 [currentPCB+13]=R6;
 [currentPCB+14]=R7;
 
+
+
 newPID = (currentPID+1)%32;
 newPCB = READY_LIST+32*newPID;
-while( [newPCB + 1] != 1) do
+counter = 0;
+while( [newPCB + 1] != 1 && counter < 32) do
 	newPID = (newPID+1)%32;
 	newPCB = READY_LIST+32*newPID;
+	counter = counter + 1;
 endwhile;
+
 
 BP = [newPCB + 2];
 SP = [newPCB + 3];

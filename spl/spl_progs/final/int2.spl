@@ -1,0 +1,122 @@
+alias physicalSP S0;
+alias sysCallNo S1;
+alias fileName S2;
+alias FATIndex S3;
+alias DFLIndex S4;
+alias SWOFTIndex S5;
+alias currentPID S6;
+alias PPOFTIndex S7;
+alias fileDescriptor S8;
+alias currentPCB S9;
+
+// get phyisicalSP from SP
+physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+
+// Get the sysytem call number
+sysCallNo = [physicalSP-1];
+
+if (sysCallNo == 2) then
+	// open system call
+
+	// get filename argument
+	fileName = [physicalSP - 3];
+
+	FATIndex = 0;
+	while ( FATIndex < 64 ) do
+		if ( [FAT + FATIndex*8] == fileName ) then
+			break;
+		endif;
+		FATIndex = FATIndex + 1;
+	endwhile;
+
+	if (FATIndex == 64) then
+		[physicalSP - 2] = -1;
+		ireturn;	
+	endif;	
+
+	// Need to find a free entry in the SWOFT table
+	SWOFTIndex = 0;
+	while(SWOFTIndex < 64) do
+		if ([FILE_TABLE + SWOFTIndex * 2] == FATIndex) then
+			// file already open
+			break;
+		endif;
+		if ([FILE_TABLE +  SWOFTIndex * 2] == -1) then
+			// Free SWOFTIndex exists
+			break;
+		endif;
+		SWOFTIndex = SWOFTIndex + 1;
+	endwhile;
+	
+	if(SWOFTIndex == 64) then
+		// No free entry in the SWOFT
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+
+	// check if free space available in PPOFT
+	currentPID = (PTBR - 1024) / 8;
+
+	PPOFTIndex = 15;
+	while(PPOFTIndex < 31) do
+		if ([READY_LIST + 32 * currentPID + PPOFTIndex] == -1) then
+			break;
+		endif;
+		PPOFTIndex = PPOFTIndex + 2;
+	endwhile;	
+
+	if(PPOFTIndex == 31) then
+		[physicalSP - 2] =-1;
+		ireturn;
+	endif;
+
+	// Add detail of SWOFTIndex in PPOFT
+  	[READY_LIST + 32 * currentPID + PPOFTIndex] = SWOFTIndex;
+  	[READY_LIST + 32 * currentPID + PPOFTIndex + 1] = 0; //Setting the LSEEK position
+
+	// Add detail in SWOFT
+	[FILE_TABLE + SWOFTIndex*2] = FATIndex;	
+	[FILE_TABLE + SWOFTIndex*2 + 1] =[FILE_TABLE + SWOFTIndex*2 + 1] + 1;
+
+	//print((PPOFTIndex-15)/2);
+
+	[physicalSP - 2] = (PPOFTIndex-15)/2; // file descriptor
+	ireturn;
+endif;
+
+if (sysCallNo == 3) then
+	fileDescriptor = [physicalSP - 3];
+
+	if (fileDescriptor > 7 || fileDescriptor < 0) then
+		// invalid entry for fileDescriptor
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;	
+
+	currentPID = (PTBR - 1024) / 8;
+	currentPCB = READY_LIST + 32*currentPID;
+
+	// Check the validity of the fileDescriptor
+	if ([currentPCB + 15 + fileDescriptor * 2] == -1) then
+		// invalid entry
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+
+
+
+	// Modify SWOFT
+	[FILE_TABLE + [currentPCB + 15 + fileDescriptor * 2] * 2 + 1] = [FILE_TABLE + [currentPCB + 15 + fileDescriptor * 2] * 2 + 1] - 1;
+	if ([FILE_TABLE + [currentPCB + 15 + fileDescriptor * 2] * 2 + 1] == 0) then
+		// invalidate the entry in SWOFT
+		[FILE_TABLE + [currentPCB + 15 + fileDescriptor * 2] * 2] = -1;
+	endif;
+
+	// invalidate the PPOFT
+	[currentPCB + 15 + fileDescriptor * 2] = -1;
+	[currentPCB + 15 + fileDescriptor * 2 + 1] = -1;
+
+	// success
+	[physicalSP - 2] = 0;
+	ireturn;		
+endif;

@@ -3,9 +3,11 @@ decl
 enddecl
 integer main()
 {
+	print("current pid");
 	status = Getpid();
 	print(status);
 
+	print("parent pid");
 	status = Getppid();
 	print(status);
 
@@ -18,6 +20,6 @@ integer main()
 		status = Exec("prog4.xsm");
 	endif;
 
-	print("not to be printed");
+	print("Parent process.");
 	return 0;
 }

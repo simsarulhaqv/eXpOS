@@ -1,0 +1,190 @@
+alias Cause S0;
+alias VPagenum S1;
+alias Ip_addr S2;
+alias PVPagenum S3;
+alias physicalSP S4;
+alias memFreePage S5;
+alias currentPID S6;
+alias currentPCB S7;
+alias victimPage S8;
+alias victimCounter S9;
+alias swapIndex S10;
+alias counter S11;
+
+Cause = EFR % 10;		// Gets value of cause field (size 1 char)
+VPagenum = (EFR / 10) % 100;    // Gets value of BadVAddr 
+Ip_addr = (EFR / 1000);		// Gets value of IP at the point
+
+//print("hey");
+//print(1);
+//print(2);
+
+// current process values
+currentPID = (PTBR - 1024) / 8;
+currentPCB = READY_LIST + currentPID*32;
+
+PVPagenum = [PTBR + VPagenum * 2];
+
+physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+
+if (Cause != 0) then
+	if (Cause == 1) then
+		print("Illigal Inst");
+	endif;
+	if (Cause == 2) then
+		print("Illigal mem access");
+	endif;
+	if (Cause == 3) then
+		print("Arthmtc Expn");
+	endif;
+	if (Cause == 4) then
+		print("Illigal Oprtn");
+	endif;
+	SP = SP + 1;
+	[physicalSP] = 10;
+	inline "JMP 11776";
+endif;
+
+
+if (Cause == 0) then
+	
+	// if the page is invalid, we just exit
+	if (PVPagenum == -1) then
+		SP = SP + 1;
+		[physicalSP] = 10;
+		inline "JMP 11776";
+	endif;
+
+	// if page is valid, we need to find a space in the memory free list
+	counter = 25;
+	while (counter < 64) do
+		if ([MEM_LIST + counter] == 0) then
+			memFreePage = counter;
+			[MEM_LIST + counter] = [MEM_LIST + counter] + 1;
+			break;
+		endif;
+		counter = counter + 1;
+	endwhile;
+
+	// if there is no space in the memory free list
+	if (counter == 64) then
+		// We will implement Page-Replacement Algorithm using Second Chance Algorithm
+		// This algorithm uses the reference bits in the auxiliary information
+		// The victim page is selected by first searching the per-procss page table of all processes
+		// the first page with reference bit in auxiliary information as 0 is selected
+		// while searching, it will set reference bit 0 to every page traversed
+		// this gives the page which is accessed recently a second chance before getting replaced.
+		
+		// find the entry that leads to exception
+		// shared pages are not replaced
+
+		// victimPage = PTBR - 1024 + PVPagenum * 2;	
+		victimPage = PTBR - 1024 + VPagenum * 2;		
+
+
+		 while(1) do
+			victimCounter = (victimPage + 2) % 256;
+			
+			while( victimPage != victimCounter ) do
+				// check if page is being used for stack
+				if (victimCounter % 8 == 6) then
+					victimCounter = (victimCounter + 2) % 256;
+					continue;
+				endif;
+
+				// reference bit is 0
+				if ([PAGE_TABLE + victimCounter + 1] == "01") then
+					
+					// check if the memory page is shared or not
+					if ([MEM_LIST + [PAGE_TABLE + victimCounter]] > 1) then
+						victimCounter = (victimCounter + 2) % 256;
+						continue;
+					endif;
+
+					// now we have found a victim page, scan the memory copy of the disk free list for a free block in the swap area		
+					swapIndex = 448;
+					while (swapIndex < 512) do
+						if ([DISK_LIST + swapIndex] == 0) then
+
+							// swapping out, means storing in the Swap area of the disk and freeing the memory page.
+							store([PAGE_TABLE + victimCounter], swapIndex);
+
+							// mark swap disk block as used
+							[DISK_LIST + swapIndex] = 1;
+
+							// store the index of the obtained page 
+							memFreePage = [PAGE_TABLE + victimCounter];
+
+							// mark page table entry to point to swap block
+							[PAGE_TABLE + victimCounter] = swapIndex;
+
+							// set auxiliary information of page as invalid
+							[PAGE_TABLE + victimCounter + 1] = "00";
+							break;						
+						endif;
+						swapIndex = swapIndex + 1;
+					endwhile;
+						
+					if (swapIndex == 512) then
+						// no space to swap out
+						SP = SP + 1;
+						[physicalSP] = 10;
+						inline "JMP 11776";
+					endif;
+					
+					if (swapIndex != 512) then
+						// we have found swap block
+						break;
+					endif;					
+						
+				endif;
+			
+				if ([PAGE_TABLE + victimCounter + 1] == "11") then
+					// change auxiliary information
+					// this gives a second chance
+					[PAGE_TABLE + victimCounter + 1] = "01";
+				endif;
+				
+				victimCounter = (victimCounter + 2) % 256;		
+					
+			endwhile;
+			
+			if(victimCounter != victimPage) then
+				break;
+			endif;	
+			
+		endwhile;		
+	endif;
+
+
+	//  we have a memory location stored in memFreePage
+
+	// check if the physical page number is a disk or swap block number
+
+	if (PVPagenum > 20 && PVPagenum < 448) then
+		// load the code to memory
+		load(memFreePage, PVPagenum);
+	endif;
+
+	if (PVPagenum > 447) then
+		// Its in the swap region
+
+		// load to memory
+		load (memFreePage, PVPagenum);
+
+		// update memory free list
+		[DISK_LIST + PVPagenum] = [DISK_LIST + PVPagenum] - 1;
+	endif;
+	
+	// Set the page table values
+	[PTBR + VPagenum * 2] = memFreePage;
+	[PTBR + VPagenum * 2 + 1] = "11";
+	
+	// increment SP by 1 and store IP value 
+	SP = SP + 1;
+	physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+	[physicalSP] = Ip_addr;
+	ireturn;
+endif;
+
+

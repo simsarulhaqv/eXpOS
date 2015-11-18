@@ -1,0 +1,190 @@
+alias physicalSP S0;
+alias sysCallNo S1;
+alias fileName S2;
+alias FATIndex S3;
+alias DFLIndex S4;
+alias BBCounter S5; // basic block
+alias SWOFTIndex S6;
+alias BLCounter S7; // block list
+alias blockDelete S8;
+alias BLDCounter S9;
+alias basicBlock S10;
+
+
+// get phyisicalSP from SP
+physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+
+// Get the sysytem call number
+sysCallNo = [physicalSP-1];
+
+// get filename argument
+fileName = [physicalSP - 3];
+
+if (sysCallNo == 1) then
+	// Create System call
+	
+	FATIndex = 0;
+	while ( FATIndex < 64 ) do
+		if ( [FAT + FATIndex*8] == fileName ) then
+			print("File already exists");
+			[physicalSP -2] = 0;
+			ireturn;
+		endif;
+		FATIndex = FATIndex + 1;
+	endwhile;
+
+	// If it do not exist in the FAT entry , we need to create a new such file
+	
+	// Scan Disk free list for empty space
+	DFLIndex = 23;
+	while( DFLIndex < 448 ) do
+		if([DISK_LIST + DFLIndex] == 0) then
+			break;
+		endif;
+		DFLIndex = DFLIndex + 1;
+	endwhile;
+	
+	if(DFLIndex == 448) then
+		print("Disk free list full");
+		[physicalSP - 1] = -1;
+		ireturn;
+	endif; 
+
+	// Find a free slot in FAT
+	FATIndex = 0;
+	while (FATIndex < 64) do	
+		if ([FAT + FATIndex * 8 + 2] == -1) then
+			break;		
+		endif;		
+		FATIndex = FATIndex + 1;	
+	endwhile;
+	
+	if (FATIndex == 64) then
+		print("FAT full");
+		[physicalSP - 2] = -1;
+		ireturn;	
+	endif;
+
+	// We got a valid block from Disk Free List, whoose index is DFLIndex and FAT entry is FATIndex
+
+	// Initialize entries of FATIndex
+	[FAT + FATIndex*8] = fileName;	
+	[FAT + FATIndex*8 +1] = 0;
+	[FAT + FATIndex*8 +2] = DFLIndex;
+
+	// load basic block, which is reciding at DFLIndex on the Disk to Scratchpad
+	load(1,DFLIndex);
+
+	BBCounter = 0;
+	while( BBCounter < 256 ) do
+		[SCRATCHPAD + BBCounter] = -1;
+		BBCounter = BBCounter + 1;
+	endwhile;
+
+	// Store back the basic block to the disk, once it is initialized
+	store(1,DFLIndex);
+
+	// Set Disk free list entry corresponding to 1
+	[DISK_LIST + DFLIndex] = 1;
+
+	// Store the memory copy of FAT and DISK_LIST back to disk
+	store(5,19);
+	store(6,20);
+
+	// return success
+	print("Success");
+	[physicalSP -2] = 0;
+	ireturn;
+endif;
+
+if (sysCallNo == 4) then
+	FATIndex = 0;
+	while ( FATIndex < 64 ) do
+		if ( [FAT + FATIndex*8] == fileName ) then
+			break;
+		endif;
+		FATIndex = FATIndex + 1;
+	endwhile;
+
+	if (FATIndex == 64) then
+		[physicalSP - 2] = -1;
+		ireturn;	
+	endif;
+
+	// we have the FATIndex corresponding to the filename
+	
+	//  Search for this FATIndex in SWOFT
+	SWOFTIndex = 0;
+	while(SWOFTIndex < 64) do
+		if ([FILE_TABLE + SWOFTIndex * 2] == FATIndex) then
+			if ( [FILE_TABLE + SWOFTIndex * 2 + 1] > 0 ) then
+				// file opened by some other processes, can't delete
+				[physicalSP - 2] = -1;
+				ireturn;
+			else
+				break;			
+			endif;
+		endif;
+		SWOFTIndex = SWOFTIndex + 1;
+	endwhile;
+
+	// We need to remove all entries from basic block of all block lists
+	BLCounter = 0;
+	while ( BLCounter < 256 ) do
+		// load basic block to Scratchpad
+		basicBlock = [FAT + FATIndex * 8 + 2];
+		load(1, basicBlock);
+
+		[DISK_LIST + basicBlock] = 0;
+	
+		blockDelete = [SCRATCHPAD + BLCounter];
+		BLCounter = BLCounter + 1;
+
+		if (blockDelete == -1) then
+			continue;
+		endif;	
+	
+		// load the data block specified in block list
+		load(1,blockDelete);		
+	
+		BLDCounter = 0;
+		while(BLDCounter < 512) do
+			[SCRATCHPAD + BLDCounter] = "";		
+			BLDCounter = BLDCounter + 1;			
+		endwhile;
+
+		// Store back the block Delete to disk
+		store(1,blockDelete);
+
+		// Set the Disk Free entry as free
+		[DISK_LIST + blockDelete] = 0;
+		
+	endwhile;
+
+	// We deleted all entries of data blocks using contents in block list
+	// Delete all entries of basic block
+
+	load(1, [FAT + FATIndex * 8 + 2]);
+	BBCounter = 0;
+	while(BBCounter < 512) do
+		[SCRATCHPAD + BBCounter] = "";
+		BBCounter = BBCounter + 1;		
+	endwhile;		 
+
+	store(1, [FAT + FATIndex * 8 + 2]);	
+
+	// Invalidate the FAT entry
+	[FAT + FATIndex * 8] = -1;
+	[FAT + FATIndex * 8 + 2] = -1;
+
+	// store back the FAT and Disk Free List from the memory to disk
+	store(5, 19);	// FAT
+	store(6, 20);	// Disk Free List
+	
+	// return with a zero
+	[physicalSP - 2] = 0;
+	ireturn;
+
+
+endif;
+

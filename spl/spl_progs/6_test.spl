@@ -1,0 +1,154 @@
+// Code for Interrupt 6
+
+// get the system call number
+// it will be stored in location SP - 1
+// since code is executing in kernel mode, convert to physical address first
+
+alias physicalSP S0;
+physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+
+// find out the system call number
+
+alias sysCallNo S1;
+sysCallNo = [physicalSP - 1];
+
+// fetch the argument(s) from SP - 2 onwards
+// there is only one argument
+
+alias fileName S2;
+fileName = [physicalSP - 3];	// note the three, not two
+
+alias PID S8;
+PID = (PTBR - 1024) / 8;
+
+alias currentPCB S9;
+currentPCB = READY_LIST + 32 * PID;
+
+alias counter S3;
+
+//print "inside_int6";
+
+if (sysCallNo == 9) then
+
+	// Exec() system call
+	
+	// check if file exists
+	
+	alias FATIndex S4;
+	FATIndex = 0;
+	
+	// there can be max 64 files
+	// each FAT entry takes 8 words	
+	while (FATIndex < 64) do	
+		if ([FAT + FATIndex * 8] == fileName) then
+			break;			
+		endif;		
+		FATIndex = FATIndex + 1;	
+	endwhile;
+	
+	if (FATIndex == 64) then	
+		// file does not exist			
+		[physicalSP - 2] = -1;
+		ireturn;	
+	endif;	
+	
+	// count the number of code blocks of the new program
+	alias countCodeBlocksNew S5;
+	countCodeBlocksNew = [FAT + FATIndex * 8 + 1];	// size
+	countCodeBlocksNew = countCodeBlocksNew / 512;	// size by 512 gives number of pages
+	
+	if (countCodeBlocksNew > 3) then
+		// invalid file, program can have only three pages of code
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+	
+	counter = 0;
+	while (counter < 3) do
+		if ([PTBR + counter * 2 + 1] == "01" || [PTBR + counter * 2 + 1] == "11") then
+			// decrement count in the memory free list
+			[MEM_LIST + [PTBR + counter * 2]] = [MEM_LIST + [PTBR + counter * 2]] - 1;
+		endif;
+		if ([PTBR + counter * 2 + 1] == "00" && [PTBR + counter * 2] > 447) then
+			[DISK_LIST + [PTBR + counter * 2]] = [DISK_LIST + [PTBR + counter * 2]] - 1;
+		endif;
+		counter = counter + 1;
+	endwhile;
+	
+	// set the PTBR as disk block numbers of the new program
+	
+	// load the basic block onto the OS scratchpad
+	load(1, [FAT + FATIndex * 8 + 2]);
+	
+	// store details about valid pages of code in the PTBR
+	counter = 0;
+	while (counter < countCodeBlocksNew) do
+		[PTBR + counter * 2] = [SCRATCHPAD + counter];
+		[PTBR + counter * 2 + 1] = "00";
+		counter = counter + 1;
+	endwhile;
+	
+	// invalidate other entries in PTBR
+	// counter would already have been at the required PTBR entry
+	// (the one that is to be invalidated)
+	while (counter < 3) do
+		[PTBR + counter * 2] = -1;
+		[PTBR + counter * 2 + 1] = "00";
+		counter = counter + 1;
+	endwhile;
+	
+	// change the auxiliary entry for the stack
+	[PTBR + 7] = "01";	
+		
+	// close all files opened by the current process
+		
+	counter = 0;
+	while (counter < 8) do
+		if ([currentPCB + 15 + counter * 2] != -1) then				
+			// we have a valid index to SWOFT
+			// index into it and decrement file count
+			[FILE_TABLE + [currentPCB + 15 + counter * 2] * 2 + 1] = [FILE_TABLE + [currentPCB + 15 + counter * 2] * 2 + 1] - 1;
+			if ([FILE_TABLE + [currentPCB + 15 + counter * 2] * 2 + 1] == 0) then				
+				// there are no more references to the file
+				// invalidate the entry in SWOFT					
+				[FILE_TABLE + [currentPCB + 15 + counter * 2] * 2] = -1;
+			endif;
+			// invalidate the PPOFT by setting fields to -1
+			[currentPCB + 15 + counter * 2] = -1;
+			[currentPCB + 15 + counter * 2 + 1] = -1;	
+		endif;
+		counter = counter + 1;
+	endwhile;
+		
+	// reset SP to 3 * 512
+	SP = 3 * 512;
+		
+	// store zero on top of the stack
+	physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+	[physicalSP] = 0;
+	
+	ireturn;	// WHAT ABOUT THE RETURN VALUE?
+
+endif;
+
+if (sysCallNo == 11) then
+	
+	// implementation of Getpid() system call
+	
+	[physicalSP - 2] = (PTBR - 1024) / 8;
+	ireturn;	// WHAT'S THE CASE FOR FAILURE?
+	
+endif;
+
+if (sysCallNo == 12) then
+	
+	// validate parent entry (can it ever be otherwise?)
+	if ([currentPCB + 31] < 0 || [currentPCB + 31] > 31) then
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+	
+	[physicalSP - 2] = [currentPCB + 31];
+	ireturn;
+	
+endif;

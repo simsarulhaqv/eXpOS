@@ -1,0 +1,125 @@
+alias physicalSP S0;
+alias sysCallNo S1;
+alias fileName S2;
+alias currentPID S8;
+alias currentPCB S9;
+alias counter S3;
+alias FATIndex S4;
+alias codeBlockCounter S5;
+alias validBlockCounter S6;
+alias diffCounter S7;
+
+
+physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+sysCallNo = [physicalSP - 1];
+currentPID = (PTBR - 1024) / 8;
+currentPCB = READY_LIST + 32 * currentPID;
+
+// exec system call
+if (sysCallNo == 9) then
+
+	fileName = [physicalSP - 3];
+
+	// search for the given filename in the fat table
+	FATIndex = 0;
+	while (FATIndex < 64) do	
+		if ([FAT + FATIndex * 8] == fileName) then
+			break;			
+		endif;		
+		FATIndex = FATIndex + 1;	
+	endwhile;
+
+	if (FATIndex == 64) then				
+		[physicalSP - 2] = -1;
+		print "No file";
+		ireturn;	
+	endif;
+
+	// load basic block to scratchpad
+	load(1, [FAT + FATIndex * 8 + 2]);
+
+
+	// count the number of code blocks of the new program
+	codeBlockCounter = [FAT + FATIndex * 8 + 1];	// size
+	codeBlockCounter = codeBlockCounter / 512;	// number of pages
+
+	// update the memory free list and the disk free list
+	counter = 0;
+	while (counter < 3) do
+		// for valid pages decrement the the memory free list value 
+		if ([PTBR + counter * 2 + 1] == "01" || [PTBR + counter * 2 + 1] == "11") then
+			[MEM_LIST + [PTBR + counter * 2]] = [MEM_LIST + [PTBR + counter * 2]] - 1;
+		endif;
+		// for invalid pages in the disk in swap region, update the disk free list
+		if ([PTBR + counter * 2 + 1] == "00" && [PTBR + counter * 2] > 447) then
+			[DISK_LIST + [PTBR + counter * 2]] = [DISK_LIST + [PTBR + counter * 2]] - 1;
+			// store the memory copy of disk back to disk
+			store(6,20);
+		endif;
+		counter = counter + 1;
+	endwhile;
+
+	// store details about valid pages of code in the Page table
+	counter = 0;
+	while (counter < codeBlockCounter) do
+		[PTBR + counter * 2] = [SCRATCHPAD + counter];
+		[PTBR + counter * 2 + 1] = "00";
+		counter = counter + 1;
+	endwhile;
+
+	while(counter < 3) do
+		[PTBR + counter * 2] = -1;
+		[PTBR + counter * 2 + 1] = "00";
+		counter = counter + 1;
+	endwhile;
+
+	[PTBR + 7] = "01";
+
+
+
+	// close all files opened by the current process
+	counter = 0;
+	while (counter < 8) do
+		if ([currentPCB + 15 + counter * 2] != -1) then				
+			[FILE_TABLE + [currentPCB + 15 + counter * 2] * 2 + 1] = [FILE_TABLE + [currentPCB + 15 + counter * 2] * 2 + 1] - 1;
+			if ([FILE_TABLE + [currentPCB + 15 + counter * 2] * 2 + 1] == 0) then				
+				[FILE_TABLE + [currentPCB + 15 + counter * 2] * 2] = -1;
+			endif;
+			[currentPCB + 15 + counter * 2] = -1;
+			[currentPCB + 15 + counter * 2 + 1] = -1;	
+		endif;
+		counter = counter + 1;
+	endwhile;
+
+	
+
+	SP = 3 * 512;
+	physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+
+	[physicalSP] = 0;
+
+	//print "hello";
+	//print validBlockCounter;
+	//print codeBlockCounter;
+	
+
+	ireturn;
+
+endif;		
+
+// getpid system call
+if (sysCallNo == 11) then
+	[physicalSP - 2] = currentPID;
+	ireturn;
+endif;
+
+if (sysCallNo == 12) then
+
+	if ([currentPCB + 31] < 0 || [currentPCB + 31] > 31) then
+		[physicalSP - 2] = -1;
+		ireturn;
+	endif;
+
+	[physicalSP -2] = [currentPCB + 31];
+	ireturn;
+endif;
